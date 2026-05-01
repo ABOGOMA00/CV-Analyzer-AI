@@ -1,0 +1,39 @@
+CV ANALYZER AI - DETAILED EVALUATION METRICS
+==================================================
+Accuracy:  0.9520
+Precision: 0.7835 (Macro Average)
+Recall:    0.7598 (Macro Average)
+F1-Score:  0.7575 (Macro Average)
+
+CLASS-LEVEL METRICS:
+--------------------------------------------------
+                        precision    recall  f1-score   support
+
+            ACCOUNTANT      0.846     0.917     0.880        24
+              ADVOCATE      0.767     0.885     0.821        26
+           AGRICULTURE      1.000     0.308     0.471        13
+               APPAREL      0.909     0.526     0.667        19
+                  ARTS      0.500     0.227     0.312        22
+            AUTOMOBILE      0.000     0.000     0.000         7
+              AVIATION      0.778     0.913     0.840        23
+               BANKING      0.773     0.739     0.756        23
+                   BPO      0.000     0.000     0.000         4
+  BUSINESS-DEVELOPMENT      0.968     0.968     0.968        95
+                  CHEF      0.913     0.875     0.894        24
+          CONSTRUCTION      0.808     0.955     0.875        22
+            CONSULTANT      0.880     0.957     0.917        23
+              DESIGNER      0.946     0.967     0.956        90
+         DIGITAL-MEDIA      0.948     0.942     0.945       156
+           ENGINEERING      0.984     0.984     0.984       369
+               FINANCE      0.966     0.991     0.978       228
+               FITNESS      0.783     0.720     0.750        25
+            HEALTHCARE      0.875     0.913     0.894        23
+                    HR      0.978     0.987     0.983       229
+INFORMATION-TECHNOLOGY      0.989     0.994     0.991       928
+      PUBLIC-RELATIONS      0.800     0.727     0.762        22
+                 SALES      0.760     0.792     0.776        24
+               TEACHER      0.633     0.950     0.760        20
+
+              accuracy                          0.952      2439
+             macro avg      0.783     0.760     0.757      2439
+          weighted avg      0.949     0.952     0.948      2439

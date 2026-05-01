@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Upload your CV and get instant AI-powered job role prediction, ATS compatibility scoring, skill gap analysis, and personalised improvement tips.">
+  <title>CV Analyzer — AI Resume Intelligence</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧠</text></svg>">
+  <!-- Preconnect to Google Fonts for faster font loading -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="app">
+  <!-- ── Sidebar ─────────────────────────────────────────────────────────── -->
+  <aside class="sidebar">
+    <div class="logo">
+      <div class="logo-mark">CV</div>
+      <h2>CV Analyzer</h2>
+      <p>AI Resume Intelligence</p>
+    </div>
+
+    <nav>
+      <div class="nav-item active" id="nav-analyze" onclick="showSection('analyze')">
+        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/>
+        </svg>
+        <span>Analyze CV</span>
+      </div>
+      <div class="nav-item" id="nav-history" onclick="showSection('history')">
+        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+        </svg>
+        <span>History</span>
+      </div>
+    </nav>
+
+    <div class="sidebar-footer">
+      <span class="status-dot" id="status-dot"></span>
+      <span id="status-text">Connecting…</span><br>
+      <span style="margin-left:14px">24 job categories</span>
+    </div>
+  </aside>
+
+  <!-- ── Main ───────────────────────────────────────────────────────────── -->
+  <main class="main">
+
+    <!-- Analyze Section -->
+    <section class="section active" id="section-analyze">
+      <div class="page-header">
+        <h1>Analyze Your CV</h1>
+        <p>Upload your resume and get AI-powered job category prediction with automated ATS matching</p>
+      </div>
+
+      <div class="upload-card" id="upload-form">
+        <div class="card-label">Upload Resume</div>
+
+        <!-- Drop zone -->
+        <div class="drop-zone" id="drop-zone" onclick="document.getElementById('file-input').click()">
+          <div class="drop-icon">
+            <svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+          </div>
+          <h3>Drop your CV here</h3>
+          <p>Supports PDF and TXT files</p>
+          <span>or click to browse</span>
+          <div class="file-chosen" id="file-chosen">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
+            <span id="file-name"></span>
+          </div>
+        </div>
+        <input type="file" id="file-input" accept=".pdf,.txt" onchange="handleFile(this)">
+
+        <!-- Paste fallback -->
+        <div class="divider">or paste CV text</div>
+        <textarea id="cv-text" placeholder="Paste your CV content here…" aria-label="CV text content"></textarea>
+
+        <!-- Job Description -->
+        <div class="divider">target job description (optional)</div>
+        <textarea
+          id="jd-text"
+          placeholder="Paste the job description here to get an accurate ATS score and skill gap analysis…"
+          aria-label="Target job description"
+          style="min-height: 100px;"
+        ></textarea>
+
+        <button class="btn-analyze" id="btn-analyze" onclick="analyzeCV()">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          Start AI Analysis
+          <span class="btn-hint">Ctrl+Enter</span>
+        </button>
+      </div>
+
+      <!-- Loading state -->
+      <div class="loading" id="loading">
+        <div class="spinner"></div>
+        <div class="loading-steps" id="loading-steps">
+          <div class="loading-step" id="step-1">
+            <span class="step-dot"></span>Reading &amp; extracting CV text
+          </div>
+          <div class="loading-step" id="step-2">
+            <span class="step-dot"></span>Running AI role classifier
+          </div>
+          <div class="loading-step" id="step-3">
+            <span class="step-dot"></span>Calculating ATS match score
+          </div>
+          <div class="loading-step" id="step-4">
+            <span class="step-dot"></span>Generating improvement tips
+          </div>
+        </div>
+      </div>
+
+      <!-- Results -->
+      <div class="results" id="results">
+        <div class="card-label" style="margin-bottom:1rem">Analysis Results</div>
+
+        <!-- Hero card -->
+        <div class="result-hero">
+          <div style="display:flex; align-items:center; gap:1.5rem; width:100%;">
+            <div class="role-badge" id="result-emoji">💼</div>
+            <div style="flex:1;">
+              <h2 id="result-role">—</h2>
+              <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-top:6px;">
+                <div class="confidence-pill">
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
+                  <span id="result-confidence">—</span> confidence
+                </div>
+                <div id="result-sector"></div>
+                <div id="result-career"></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Mismatched Job Warning -->
+          <div id="mismatch-warning-section" style="width:100%; border-top:1px solid var(--border); padding-top:1.2rem; margin-top:1.5rem; display:none;">
+            <div class="card-label" style="margin-bottom:12px; color:var(--danger);">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+              Mismatched Job
+            </div>
+            <div style="font-size:13px; color:var(--danger); background:rgba(248,113,113,0.1); padding:10px 14px; border-radius:8px; border:1px solid rgba(248,113,113,0.3);">
+              Your CV does not strongly align with the target job description. Consider reviewing the missing skills and tailoring your CV further.
+            </div>
+          </div>
+
+          <!-- Detected skills -->
+          <div style="width:100%; border-top:1px solid var(--border); padding-top:1.2rem; margin-top:1.5rem;">
+            <div class="card-label" style="margin-bottom:12px;">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
+              Keywords detected by AI
+            </div>
+            <div id="hero-skills-tags" style="display:flex; gap:8px; flex-wrap:wrap;"></div>
+          </div>
+
+          <!-- Missing skills -->
+          <div id="missing-skills-section" style="width:100%; border-top:1px solid var(--border); padding-top:1.2rem; margin-top:1rem; display:none;">
+            <div class="card-label" style="margin-bottom:12px; color:var(--warn);">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+              Skills to add for this role
+            </div>
+            <div id="missing-skills-tags" style="display:flex; gap:8px; flex-wrap:wrap;"></div>
+          </div>
+        </div>
+
+        <!-- Sub-Specialization chart -->
+        <div class="upload-card" id="sub-spec-container" style="display:none;"></div>
+
+        <!-- ATS score -->
+        <div id="ats-score-container"></div>
+
+        <!-- All Scores Breakdown -->
+        <div class="upload-card" id="scores-breakdown" style="display:none;">
+          <div class="card-label">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+            All Category Scores
+          </div>
+          <div id="scores-list"></div>
+        </div>
+
+        <!-- Related Roles -->
+        <div class="upload-card" id="related-roles-container" style="display:none;"></div>
+
+        <!-- Tips -->
+        <div class="upload-card">
+          <div class="card-label">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+            Improvement Tips
+          </div>
+          <div class="tips-grid" id="tips-grid"></div>
+        </div>
+
+        <!-- Rewrite CV Section -->
+        <div class="upload-card" id="rewrite-section" style="display:none; margin-top: 1rem; border: 1px solid var(--accent); padding: 1.5rem;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem; border-bottom: 1px solid var(--border); padding-bottom: 1rem;">
+            <div class="card-label" style="color: var(--accent); margin: 0;">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align: middle; margin-right: 6px;"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+              AI-Rewritten CV Comparison
+            </div>
+            
+            <!-- ATS Improvement Score -->
+            <div id="rewrite-ats-scores" style="display:none; align-items: center; gap: 15px;">
+              <div style="text-align: right;">
+                <div style="font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px;">Original ATS</div>
+                <div id="rewrite-old-score" style="font-size: 16px; font-weight: 600; color: var(--text);">--</div>
+              </div>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2"><path d="M5 12h14"/><path d="M12 5l7 7-7 7"/></svg>
+              <div>
+                <div style="font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px;">New ATS</div>
+                <div id="rewrite-new-score" style="font-size: 18px; font-weight: 700; color: var(--success);">--</div>
+              </div>
+            </div>
+          </div>
+
+          <div id="rewrite-loading" style="display:none; padding: 40px 20px; text-align: center;">
+            <div class="spinner" style="margin: 0 auto; width: 36px; height: 36px; border-width: 3px; border-top-color: var(--accent);"></div>
+            <p style="margin-top: 15px; color: var(--text); font-size: 15px; font-weight: 500;">Rewriting your CV to match the job description...</p>
+            <p style="color: var(--muted); font-size: 13px; margin-top: 5px;">This may take a few seconds.</p>
+          </div>
+
+          <div id="rewrite-content" style="display:none;">
+            <div class="rewrite-compare-grid">
+              <!-- Before -->
+              <div style="border: 1px solid var(--border2); border-radius: 8px; overflow: hidden; display: flex; flex-direction: column;">
+                <div style="background: var(--surface); padding: 10px 15px; border-bottom: 1px solid var(--border2); font-weight: 600; color: var(--muted); font-size: 13px; text-transform: uppercase; letter-spacing: 0.5px;">
+                  Original CV
+                </div>
+                <div id="rewrite-original-text" style="padding: 15px; font-size: 13px; line-height: 1.6; white-space: pre-wrap; color: var(--text); background: rgba(0,0,0,0.1); overflow-y: auto; max-height: 500px; flex: 1;"></div>
+              </div>
+              
+              <!-- After -->
+              <div style="border: 1px solid var(--accent); border-radius: 8px; overflow: hidden; box-shadow: 0 4px 20px rgba(110,127,255,0.1); display: flex; flex-direction: column;">
+                <div style="background: rgba(110,127,255,0.1); padding: 10px 15px; border-bottom: 1px solid rgba(110,127,255,0.2); display: flex; justify-content: space-between; align-items: center;">
+                  <div style="font-weight: 600; color: var(--accent); font-size: 13px; text-transform: uppercase; letter-spacing: 0.5px;">
+                    Optimized CV
+                  </div>
+                  <div style="display: flex; gap: 8px;">
+                    <button onclick="copyRewrittenCV()" style="background: none; border: 1px solid var(--accent); color: var(--accent); padding: 4px 10px; border-radius: 4px; font-size: 11px; cursor: pointer; display: flex; align-items: center; gap: 4px; transition: all 0.2s;">
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> Copy
+                    </button>
+                    <button onclick="downloadRewrittenCV()" style="background: var(--accent); border: none; color: white; padding: 4px 10px; border-radius: 4px; font-size: 11px; cursor: pointer; display: flex; align-items: center; gap: 4px; transition: all 0.2s;">
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Download
+                    </button>
+                  </div>
+                </div>
+                <div id="rewrite-new-text" style="padding: 15px; font-size: 13px; line-height: 1.6; white-space: pre-wrap; color: var(--text); background: var(--surface); overflow-y: auto; max-height: 500px; flex: 1;"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div style="display: flex; gap: 10px; margin-top: 1rem;">
+          <button
+            class="btn-analyze"
+            style="flex: 1; background: var(--accent); border: none; color: white;"
+            onclick="rewriteCV()"
+            id="btn-rewrite"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+            Rewrite CV for this Role
+          </button>
+          
+          <button
+            class="btn-analyze"
+            style="flex: 1; background: var(--surface); border: 1px solid var(--border2); color: var(--text);"
+            onclick="resetForm()"
+            id="btn-reset"
+          >
+            Analyze Another CV
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- History Section -->
+    <section class="section" id="section-history">
+      <div class="page-header">
+        <h1>Analysis History</h1>
+        <p>Your previous CV analyses</p>
+      </div>
+      <div class="upload-card">
+        <div class="card-label">Recent Analyses</div>
+        <!-- Sector filter tabs -->
+        <div class="filter-tabs" id="history-filter-tabs"></div>
+        <div class="history-list" id="history-list"></div>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast" role="alert" aria-live="polite"></div>
+
+<script src="script.js"></script>
+</body>
+</html>

@@ -1,0 +1,13 @@
+Senior Backend Engineer
+
+Responsibilities:
+- Design and develop REST APIs using Python and Django.
+- Build scalable micro‑services and deploy with Docker and Kubernetes.
+- Work with PostgreSQL and write efficient SQL queries.
+- Collaborate with front‑end teams and integrate with AWS services.
+
+Requirements:
+- 5+ years of backend development experience.
+- Proficient in Python, Django, REST, Docker, Kubernetes, AWS.
+- Strong knowledge of databases (PostgreSQL, MySQL).
+- Experience with CI/CD pipelines and automated testing.
