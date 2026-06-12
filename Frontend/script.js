@@ -44,6 +44,24 @@ let _historyData    = [];
 // Restored from sessionStorage so the user can rewrite even after a soft reset
 let _currentCVText  = (() => { try { return sessionStorage.getItem('cvText') || ''; } catch { return ''; } })();
 
+// ── Error Helper ──────────────────────────────────────────────────────────────
+async function getErrorMessage(res) {
+  try {
+    const e = await res.json();
+    if (typeof e.detail === 'string') return e.detail;
+    if (Array.isArray(e.detail)) {
+      return e.detail.map(err => {
+        const field = err.loc ? err.loc[err.loc.length - 1] : 'field';
+        return `${field}: ${err.msg}`;
+      }).join(', ');
+    }
+    if (e.detail) return JSON.stringify(e.detail);
+    return `HTTP ${res.status}`;
+  } catch {
+    return `HTTP ${res.status}`;
+  }
+}
+
 // ── Navigation ────────────────────────────────────────────────────────────────
 function showSection(name) {
   document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
@@ -146,7 +164,7 @@ async function analyzeCV() {
 
   try {
     const res = await fetch(`${API}/analyze/upload`, { method:'POST', body: fd });
-    if (!res.ok) { const e = await res.json().catch(()=>({detail:'Unknown error'})); throw new Error(e.detail || `HTTP ${res.status}`); }
+    if (!res.ok) { throw new Error(await getErrorMessage(res)); }
     const data = await res.json();
     stopLoadingSteps();
     showResults(data);
@@ -197,10 +215,23 @@ function showResults(data) {
     .map(s => `<span class="skill-badge">${escHtml(s)}</span>`).join('');
 
   // ── Missing skills ────────────────────────────────────────────────────────
-  const missingSec  = document.getElementById('missing-skills-section');
-  const missingTags = document.getElementById('missing-skills-tags');
+  const missingSec     = document.getElementById('missing-skills-section');
+  const missingTags    = document.getElementById('missing-skills-tags');
+  const missingSentence= document.getElementById('missing-skills-sentence');
   if (data.missing_skills?.length) {
-    missingTags.innerHTML = data.missing_skills.map(s => `<span class="skill-badge missing">${escHtml(s)}</span>`).join('');
+    const n = data.missing_skills.length;
+    missingSentence.textContent = `You're missing ${n} skill${n > 1 ? 's' : ''}:`;
+    missingTags.innerHTML = data.missing_skills
+      .map(s => `<span style="
+          display:inline-flex;align-items:center;gap:5px;
+          background:rgba(251,191,36,0.13);color:var(--warn);
+          border:1px solid rgba(251,191,36,0.4);
+          border-radius:6px;padding:4px 10px;
+          font-size:13px;font-weight:500;
+        ">
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        ${escHtml(s)}</span>`)
+      .join('');
     missingSec.style.display = 'block';
   } else {
     missingSec.style.display = 'none';
@@ -248,6 +279,140 @@ function showResults(data) {
     atsContainer.innerHTML = '';
   }
 
+  // ── ATS Explainability Report ──────────────────────────────────────────────
+  const explainabilityContainer = document.getElementById('ats-explainability-container');
+  if (data.ats_breakdown) {
+    const breakdown = data.ats_breakdown;
+    const kwColor = breakdown.keyword_match_score >= 80 ? 'var(--success)' : breakdown.keyword_match_score >= 50 ? 'var(--warn)' : 'var(--danger)';
+    const skColor = breakdown.skills_match_score >= 80 ? 'var(--success)' : breakdown.skills_match_score >= 50 ? 'var(--warn)' : 'var(--danger)';
+    const semColor = breakdown.semantic_similarity_score >= 80 ? 'var(--success)' : breakdown.semantic_similarity_score >= 50 ? 'var(--warn)' : 'var(--danger)';
+    const quColor = breakdown.resume_quality_score >= 80 ? 'var(--success)' : breakdown.resume_quality_score >= 50 ? 'var(--warn)' : 'var(--danger)';
+
+    const matchedBadges = (data.matched_keywords ?? []).map(k => `
+      <span class="skill-badge" style="background:rgba(52,211,153,0.1); color:var(--success); border-color:rgba(52,211,153,0.25);">
+        ✓ ${escHtml(k)}
+      </span>
+    `).join('');
+
+    const missingBadges = (data.missing_keywords ?? []).map(k => `
+      <span class="skill-badge missing" style="background:rgba(248,113,113,0.1); color:var(--danger); border-color:rgba(248,113,113,0.25);">
+        ✗ ${escHtml(k)}
+      </span>
+    `).join('');
+
+    const strengthsHtml = (data.resume_strengths ?? []).map(s => `
+      <div style="display:flex; gap:8px; align-items:flex-start; margin-bottom:8px; font-size:13px; line-height:1.4;">
+        <span style="color:var(--success); font-weight:bold;">✓</span>
+        <span>${escHtml(s)}</span>
+      </div>
+    `).join('');
+
+    const weaknessesHtml = (data.resume_weaknesses ?? []).map(w => `
+      <div style="display:flex; gap:8px; align-items:flex-start; margin-bottom:8px; font-size:13px; line-height:1.4;">
+        <span style="color:var(--danger); font-weight:bold;">✗</span>
+        <span>${escHtml(w)}</span>
+      </div>
+    `).join('');
+
+    const recommendationsHtml = (data.ats_recommendations ?? []).map(r => `
+      <div style="display:flex; gap:8px; align-items:flex-start; margin-bottom:10px; font-size:13px; line-height:1.4; background:var(--surface2); padding:10px 12px; border-radius:8px; border-left:3px solid var(--accent);">
+        <span style="font-size:14px; margin-top:-1px;">💡</span>
+        <span>${escHtml(r)}</span>
+      </div>
+    `).join('');
+
+    explainabilityContainer.innerHTML = `
+      <div class="upload-card" style="border: 1px solid var(--border2); padding: 1.5rem;">
+        <div class="card-label">ATS Analysis Report</div>
+        
+        <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-bottom: 2rem;">
+          
+          <div style="background:var(--surface2); padding:1rem; border-radius:10px; border-top:3px solid ${kwColor};">
+            <div style="font-size:11px; color:var(--muted); text-transform:uppercase; font-weight:600;">Keyword Match Score</div>
+            <div style="font-size:22px; font-weight:800; color:${kwColor}; margin-top:5px;">${breakdown.keyword_match_score.toFixed(1)}%</div>
+            <div class="ats-bar-track" style="height:6px; margin-top:8px;">
+              <div class="ats-bar-fill" style="width:${breakdown.keyword_match_score}%; background:${kwColor};"></div>
+            </div>
+          </div>
+          
+          <div style="background:var(--surface2); padding:1rem; border-radius:10px; border-top:3px solid ${skColor};">
+            <div style="font-size:11px; color:var(--muted); text-transform:uppercase; font-weight:600;">Skills Match Score</div>
+            <div style="font-size:22px; font-weight:800; color:${skColor}; margin-top:5px;">${breakdown.skills_match_score.toFixed(1)}%</div>
+            <div class="ats-bar-track" style="height:6px; margin-top:8px;">
+              <div class="ats-bar-fill" style="width:${breakdown.skills_match_score}%; background:${skColor};"></div>
+            </div>
+          </div>
+
+          <div style="background:var(--surface2); padding:1rem; border-radius:10px; border-top:3px solid ${semColor};">
+            <div style="font-size:11px; color:var(--muted); text-transform:uppercase; font-weight:600;">Semantic Similarity</div>
+            <div style="font-size:22px; font-weight:800; color:${semColor}; margin-top:5px;">${breakdown.semantic_similarity_score.toFixed(1)}%</div>
+            <div class="ats-bar-track" style="height:6px; margin-top:8px;">
+              <div class="ats-bar-fill" style="width:${breakdown.semantic_similarity_score}%; background:${semColor};"></div>
+            </div>
+          </div>
+
+          <div style="background:var(--surface2); padding:1rem; border-radius:10px; border-top:3px solid ${quColor};">
+            <div style="font-size:11px; color:var(--muted); text-transform:uppercase; font-weight:600;">Resume Quality Score</div>
+            <div style="font-size:22px; font-weight:800; color:${quColor}; margin-top:5px;">${breakdown.resume_quality_score.toFixed(1)}%</div>
+            <div class="ats-bar-track" style="height:6px; margin-top:8px;">
+              <div class="ats-bar-fill" style="width:${breakdown.resume_quality_score}%; background:${quColor};"></div>
+            </div>
+          </div>
+
+        </div>
+
+        <div style="font-size:12px; color:var(--muted); background:var(--surface2); padding:10px 15px; border-radius:8px; margin-bottom: 2rem; border-left: 3px solid var(--accent); line-height:1.5;">
+          <strong>Weighted Formula:</strong> ${escHtml(breakdown.calculation_description)}
+        </div>
+
+        <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap:20px; margin-bottom:2rem;">
+          
+          <div style="background:rgba(52,211,153,0.03); border:1px solid rgba(52,211,153,0.15); border-radius:10px; padding:1.2rem;">
+            <h3 style="font-size:14px; color:var(--success); font-weight:700; margin-bottom:12px; display:flex; align-items:center; gap:6px;">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+              Resume Strengths
+            </h3>
+            ${strengthsHtml || '<div style="font-size:12px; color:var(--muted)">No specific strengths identified.</div>'}
+          </div>
+
+          <div style="background:rgba(248,113,113,0.03); border:1px solid rgba(248,113,113,0.15); border-radius:10px; padding:1.2rem;">
+            <h3 style="font-size:14px; color:var(--danger); font-weight:700; margin-bottom:12px; display:flex; align-items:center; gap:6px;">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+              Resume Weaknesses
+            </h3>
+            ${weaknessesHtml || '<div style="font-size:12px; color:var(--muted)">No specific weaknesses identified.</div>'}
+          </div>
+
+        </div>
+
+        <div style="margin-bottom:1.5rem;">
+          <h3 style="font-size:13px; color:var(--text); font-weight:600; margin-bottom:10px; text-transform:uppercase; letter-spacing:0.5px;">Matched Keywords</h3>
+          <div style="display:flex; gap:8px; flex-wrap:wrap;">
+            ${matchedBadges || '<span style="font-size:12px; color:var(--muted)">No matching keywords found.</span>'}
+          </div>
+        </div>
+
+        <div style="margin-bottom:2rem;">
+          <h3 style="font-size:13px; color:var(--text); font-weight:600; margin-bottom:10px; text-transform:uppercase; letter-spacing:0.5px;">Missing Important Keywords</h3>
+          <div style="display:flex; gap:8px; flex-wrap:wrap;">
+            ${missingBadges || '<span style="font-size:12px; color:var(--muted)">No missing keywords. Great job!</span>'}
+          </div>
+        </div>
+
+        <div>
+          <h3 style="font-size:13px; color:var(--text); font-weight:600; margin-bottom:12px; text-transform:uppercase; letter-spacing:0.5px;">Actionable Recommendations</h3>
+          <div>
+            ${recommendationsHtml}
+          </div>
+        </div>
+
+      </div>
+    `;
+    explainabilityContainer.style.display = 'block';
+  } else {
+    explainabilityContainer.style.display = 'none';
+  }
+
   // ── All scores chart ──────────────────────────────────────────────────────
   renderScoresBreakdown(data.all_scores ?? {});
 
@@ -255,12 +420,19 @@ function showResults(data) {
   renderRelatedRoles(data.related_roles ?? [], sectorColor, data.sector);
 
   // ── Tips ──────────────────────────────────────────────────────────────────
+  const tipsCard = document.getElementById('tips-card');
   const tipsGrid = document.getElementById('tips-grid');
-  tipsGrid.innerHTML = (data.tips?.tips ?? []).map(t => `
-    <div class="tip-card ${escHtml(t.type ?? '')}">
-      <div class="tip-title"><span class="tip-icon">${TIP_ICON[t.type] ?? '💡'}</span>${escHtml(t.title)}</div>
-      <div class="tip-msg">${escHtml(t.message)}</div>
-    </div>`).join('');
+  const tipsList = data.tips?.tips ?? [];
+  if (tipsList.length > 0) {
+    tipsGrid.innerHTML = tipsList.map(t => `
+      <div class="tip-card ${escHtml(t.type ?? '')}">
+        <div class="tip-title"><span class="tip-icon">${TIP_ICON[t.type] ?? '💡'}</span>${escHtml(t.title)}</div>
+        <div class="tip-msg">${escHtml(t.message)}</div>
+      </div>`).join('');
+    tipsCard.style.display = 'block';
+  } else {
+    tipsCard.style.display = 'none';
+  }
 
   document.getElementById('results').style.display      = 'block';
   document.getElementById('upload-form').style.display  = 'none';
@@ -306,53 +478,13 @@ function renderSubSpec(subSpec, accentColor) {
 // ── All scores breakdown ──────────────────────────────────────────────────────
 function renderScoresBreakdown(allScores) {
   const container = document.getElementById('scores-breakdown');
-  const list      = document.getElementById('scores-list');
-  const entries   = Object.entries(allScores).sort((a,b) => b[1]-a[1]).slice(0, 8);
-  if (!entries.length) { container.style.display = 'none'; return; }
-
-  const maxScore = entries[0][1];
-  list.innerHTML = entries.map(([role, score], idx) => {
-    const pct      = maxScore > 0 ? (score / maxScore) * 100 : 0;
-    const sector   = _getSector(role);
-    const barColor = idx === 0 ? (SECTOR_COLOR[sector] || 'var(--accent)') : '#2a3050';
-    const textColor= idx === 0 ? (SECTOR_COLOR[sector] || 'var(--accent)') : 'var(--muted)';
-    return `
-      <div class="score-row ${idx===0 ? 'score-row--top' : ''}">
-        <span class="score-role" style="color:${textColor}">
-          ${ROLE_EMOJI[role] ?? '💼'} ${escHtml(role.replace(/-/g,' '))}
-        </span>
-        <div class="score-bar-wrap">
-          <div class="score-bar-bg">
-            <div class="score-bar-val" data-width="${pct}" style="background:${barColor}; width:0;"></div>
-          </div>
-        </div>
-        <span class="score-pct" style="color:${textColor}">${score.toFixed(1)}%</span>
-      </div>`;
-  }).join('');
-
-  container.style.display = 'block';
-  requestAnimationFrame(() => requestAnimationFrame(() => {
-    list.querySelectorAll('.score-bar-val').forEach(b => b.style.width = b.dataset.width + '%');
-  }));
+  if (container) container.style.display = 'none';
 }
 
 // ── Related roles ─────────────────────────────────────────────────────────────
 function renderRelatedRoles(roles, color, sector) {
   const container = document.getElementById('related-roles-container');
-  if (!roles.length) { container.style.display = 'none'; return; }
-  container.innerHTML = `
-    <div class="card-label" style="margin-bottom:1rem;">
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-      Other roles in ${escHtml(sector ?? 'this field')}
-    </div>
-    <div class="related-grid">
-      ${roles.slice(0,4).map(r => `
-        <div class="related-card" style="border-color:${color}33;">
-          <div class="related-emoji">${escHtml(r.emoji)}</div>
-          <div class="related-name">${escHtml(r.display)}</div>
-        </div>`).join('')}
-    </div>`;
-  container.style.display = 'block';
+  if (container) container.style.display = 'none';
 }
 
 // ── History filter ────────────────────────────────────────────────────────────
@@ -478,12 +610,18 @@ function resetForm() {
   document.getElementById('ats-score-container').innerHTML = '';
   document.getElementById('scores-breakdown').style.display = 'none';
   document.getElementById('sub-spec-container').style.display = 'none';
-  document.getElementById('related-roles-container').style.display = 'none';
+  const relRolesEl = document.getElementById('related-roles-container');
+  if (relRolesEl) relRolesEl.style.display = 'none';
 
   // Clear skill tags and tips to avoid stale data on edge-case re-opens
   document.getElementById('tips-grid').innerHTML          = '';
+  document.getElementById('tips-card').style.display      = 'none';
   document.getElementById('hero-skills-tags').innerHTML   = '';
-  document.getElementById('missing-skills-tags').innerHTML = '';
+  document.getElementById('missing-skills-tags').innerHTML   = '';
+  const missSentEl = document.getElementById('missing-skills-sentence');
+  if (missSentEl) missSentEl.textContent = '';
+  document.getElementById('missing-skills-section').style.display = 'none';
+
 
   const mismatchWarning = document.getElementById('mismatch-warning-section');
   if (mismatchWarning) mismatchWarning.style.display = 'none';
@@ -493,6 +631,11 @@ function resetForm() {
   document.getElementById('rewrite-original-text').textContent = '';
   document.getElementById('rewrite-new-text').innerHTML = '';
   document.getElementById('rewrite-ats-scores').style.display = 'none';
+  document.getElementById('ats-explainability-container').style.display = 'none';
+  document.getElementById('ats-explainability-container').innerHTML = '';
+  document.getElementById('rewrite-keywords-delta-container').style.display = 'none';
+  document.getElementById('rewrite-new-keywords-list').innerHTML = '';
+  document.getElementById('rewrite-ollama-warning').style.display = 'none';
 
   document.getElementById('upload-form').scrollIntoView({ behavior:'smooth', block:'start' });
 }
@@ -514,6 +657,8 @@ async function rewriteCV() {
   document.getElementById('rewrite-section').style.display = 'block';
   document.getElementById('rewrite-loading').style.display = 'block';
   document.getElementById('rewrite-content').style.display = 'none';
+  document.getElementById('rewrite-keywords-delta-container').style.display = 'none';
+  document.getElementById('rewrite-ollama-warning').style.display = 'none';
 
   try {
     const res = await fetch(`${API}/rewrite/`, {
@@ -523,8 +668,7 @@ async function rewriteCV() {
     });
     
     if (!res.ok) {
-      const e = await res.json().catch(() => ({ detail: 'Unknown error' }));
-      throw new Error(e.detail || `HTTP ${res.status}`);
+      throw new Error(await getErrorMessage(res));
     }
     
     const data = await res.json();
@@ -532,6 +676,28 @@ async function rewriteCV() {
     document.getElementById('rewrite-original-text').textContent = _currentCVText;
     document.getElementById('rewrite-new-text').innerHTML = highlightDifferences(_currentCVText, data.rewritten_cv);
     
+    // Render Ollama fallback warning
+    const ollamaWarning = document.getElementById('rewrite-ollama-warning');
+    if (data.ollama_fallback) {
+      ollamaWarning.style.display = 'flex';
+    } else {
+      ollamaWarning.style.display = 'none';
+    }
+    
+    // Render new keywords injected
+    const deltaContainer = document.getElementById('rewrite-keywords-delta-container');
+    const deltaList = document.getElementById('rewrite-new-keywords-list');
+    if (data.new_keywords_added && data.new_keywords_added.length > 0) {
+      deltaList.innerHTML = data.new_keywords_added.map(k => `
+        <span class="skill-badge" style="background:rgba(45,212,191,0.1); color:var(--teal); border-color:rgba(45,212,191,0.25);">
+          ✓ ${escHtml(k)}
+        </span>
+      `).join('');
+      deltaContainer.style.display = 'block';
+    } else {
+      deltaContainer.style.display = 'none';
+    }
+
     if (data.old_ats_score != null && data.new_ats_score != null) {
       document.getElementById('rewrite-old-score').textContent = data.old_ats_score.toFixed(1) + '%';
       document.getElementById('rewrite-new-score').textContent = data.new_ats_score.toFixed(1) + '%';
@@ -689,7 +855,8 @@ function showToast(message, type = 'success') {
 function escHtml(str) {
   return String(str ?? '')
     .replace(/&/g,'&amp;').replace(/</g,'&lt;')
-    .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    .replace(/>/g,'&gt;').replace(/"/g,'&quot;')
+    .replace(/'/g,'&#x27;');
 }
 
 function formatDate(iso) {

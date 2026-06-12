@@ -36,6 +36,14 @@ class RelatedRole(BaseModel):
     emoji:   str
 
 
+class ATSBreakdown(BaseModel):
+    keyword_match_score: float
+    skills_match_score: float
+    semantic_similarity_score: float
+    resume_quality_score: float
+    calculation_description: str
+
+
 # ── Analysis ──────────────────────────────────────────────────────────────────
 
 class AnalysisResponse(BaseModel):
@@ -53,6 +61,12 @@ class AnalysisResponse(BaseModel):
     career_level:     Optional[str]              = None
     related_roles:    Optional[List[RelatedRole]] = None
     ats_score:        Optional[float]            = None
+    ats_breakdown:    Optional[ATSBreakdown]     = None
+    matched_keywords: Optional[List[str]]        = None
+    missing_keywords: Optional[List[str]]        = None
+    ats_recommendations: Optional[List[str]]      = None
+    resume_strengths: Optional[List[str]]        = None
+    resume_weaknesses: Optional[List[str]]       = None
     extracted_skills: Optional[List[str]]        = None
     missing_skills:   Optional[List[str]]        = None
     is_mismatch:      Optional[bool]             = None
@@ -79,13 +93,15 @@ class AnalysisHistoryItem(BaseModel):
 # ── Rewrite ───────────────────────────────────────────────────────────────────
 
 class RewriteRequest(BaseModel):
-    cv_text: str
-    job_description: str
+    cv_text: str = Field(..., min_length=1, max_length=50000)
+    job_description: str = Field(..., min_length=1, max_length=20000)
 
 class RewriteResponse(BaseModel):
     rewritten_cv: str
     old_ats_score: Optional[float] = None
     new_ats_score: Optional[float] = None
+    new_keywords_added: Optional[List[str]] = None
+    ollama_fallback: Optional[bool] = None
 
 class RewriteDownloadRequest(BaseModel):
-    rewritten_cv: str
+    rewritten_cv: str = Field(..., min_length=1, max_length=100000)

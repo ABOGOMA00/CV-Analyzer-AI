@@ -19,3 +19,5 @@ run_stderr.log
 server.out.log
 server.err.log
 server.log
+# Visual Studio files
+.vs/

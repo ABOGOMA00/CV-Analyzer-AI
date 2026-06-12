@@ -198,6 +198,22 @@ _NOISE_WORDS = {
     "proven","demonstrated","hands","experience","expertise","proficiency",
     "familiar","knowledge","understanding","ability","capability","capacity",
     "cross","functional","end","end","result","impact","success","value",
+    # ── contact / profile noise words from PDF extraction ─────────────────
+    "responsible","coordination","monitoring","evaluation",
+    "documentation","presentation","implementation","assessment",
+    "administration","operations","execution","oversight",
+    # generic verbs/adjectives that aren't real skills
+    "enhance","enhanced","features","feature",
+    "improve","improving","continuous","improvement",
+    "creating","drive","driving","streamline",
+    "ensure","ensuring","leverage","leveraging",
+    "boost","boosting","innovative","outstanding",
+    "loyalty","brand","utilizing","seeking",
+    # city names that leak from CV addresses
+    "sheffield","city","manchester","birmingham",
+    "chicago","angeles","francisco","stockport",
+    # template builder names
+    "genius","novoresume","zety",
 }
 
 
@@ -321,8 +337,8 @@ _SUB_SPECIALIZATIONS: dict[str, dict[str, list[str]]] = {
         ],
         "Social Media Manager": [
             "social media", "instagram", "facebook", "tiktok", "twitter",
-            "linkedin", "content calendar", "engagement", "community management",
-            "influencer", "paid social", "meta ads",
+            "content calendar", "community management",
+            "paid social", "meta ads",
         ],
         "Content Creator": [
             "content creation", "copywriting", "blog", "storytelling",
@@ -652,6 +668,76 @@ _PROTECTED_TERMS = sorted(
     reverse=True,
 )
 
+_SKILL_TERM_EXCLUDE = {
+    "r", "go", "it", "hr", "cv", "pm", "ba", "vp", "db", "os", "vm",
+    "frontend", "backend", "server", "team management", "performance",
+    # contact / profile info — never a skill
+    "linkedin", "github", "portfolio", "website", "twitter", "facebook",
+    # generic marketing / HR terms too broad to be meaningful skills
+    "engagement", "community", "influencer", "interviews", "onboarding",
+    "presentations", "reporting", "training", "testing", "monitoring",
+    # education / institution words — not skills
+    "university", "college", "institute", "school", "bachelor", "master",
+    "degree", "diploma", "certification", "graduate", "undergraduate",
+}
+
+
+def _build_skill_vocabulary() -> list[str]:
+    terms: set[str] = set()
+    for keywords in _ROLE_KEYWORDS.values():
+        terms.update(k.lower() for k in keywords)
+    for role_specs in _SUB_SPECIALIZATIONS.values():
+        for keywords in role_specs.values():
+            terms.update(k.lower() for k in keywords)
+    terms.update(
+        {
+            "aws", "azure", "gcp", "api", "rest api", "api design", "sql",
+            "postgresql", "mysql", "mongodb", "redis", "docker", "kubernetes",
+            "git", "github actions", "ci/cd", "python", "java", "javascript",
+            "typescript", "react", "angular", "vue", "fastapi", "django",
+            "flask", "automated testing", "unit testing", "production monitoring",
+            "performance optimization", "c#", "c++", ".net", "asp.net",
+        }
+    )
+    cleaned_terms = {
+        t.strip().lower()
+        for t in terms
+        if t and t.strip().lower() not in _SKILL_TERM_EXCLUDE
+    }
+    return sorted(cleaned_terms, key=lambda t: (-len(t), t))
+
+
+_SKILL_VOCABULARY = _build_skill_vocabulary()
+
+
+from functools import lru_cache as _lru_cache
+
+@_lru_cache(maxsize=512)
+def _term_pattern(term: str) -> str:
+    parts: list[str] = []
+    for part in re.split(r"[\s/-]+", term.lower()):
+        if not part:
+            continue
+        parts.append(r"apis?" if part == "api" else re.escape(part))
+    if not parts:
+        return ""
+    # Allow one or more whitespace characters / hyphens between words
+    # to handle PDFs that embed extra spaces between characters.
+    separator = r"[\s/-]+" if len(parts) > 1 else ""
+    pattern = separator.join(parts)
+    return rf"(?<![a-z0-9+#]){pattern}(?![a-z0-9+#])"
+
+
+
+def _term_match_position(term: str, text: str) -> int | None:
+    pattern = _term_pattern(term)
+    match = re.search(pattern, text.lower()) if pattern else None
+    return match.start() if match else None
+
+
+def _has_skill_term(term: str, text: str) -> bool:
+    return _term_match_position(term, text) is not None
+
 def clean_text(text: str) -> str:
     """Improved cleaning that preserves technical abbreviations. Matches v2 training."""
     if not isinstance(text, str):
@@ -685,16 +771,27 @@ def clean_text(text: str) -> str:
 
 def _extract_ats_terms(text: str) -> set[str]:
     """
-    Robust ATS term extraction with spaCy-first and regex fallback.
-    Keeps technical tokens and avoids empty-term edge cases.
+    Robust ATS term extraction with three complementary strategies:
+    1) Direct multi-word vocabulary matching (most precise for skills)
+    2) spaCy token extraction (good for single-word technical terms)
+    3) Regex fallback (prevents empty-skill false positives)
     """
-    cleaned = clean_text(text)
-    if not cleaned:
+    if not text:
         return set()
 
     terms: set[str] = set()
 
-    # 1) spaCy extraction when available
+    # 1) Multi-word vocabulary matching — catches "financial modeling",
+    #    "machine learning", etc. that spaCy splits into individual tokens.
+    for vocab_term in _SKILL_VOCABULARY:
+        if _has_skill_term(vocab_term, text):
+            terms.add(vocab_term)
+
+    cleaned = clean_text(text)
+    if not cleaned:
+        return terms
+
+    # 2) spaCy extraction — good for individual technical tokens
     if _nlp:
         try:
             doc = _nlp(cleaned)
@@ -704,13 +801,16 @@ def _extract_ats_terms(text: str) -> set[str]:
                     t
                     and len(t) > 2
                     and t not in _NOISE_WORDS
-                    and (token.pos_ in ("PROPN", "NOUN") or t in _PROTECTED_TERMS)
+                    and (
+                        token.pos_ in ("PROPN", "NOUN", "ADJ", "VERB")
+                        or t in _PROTECTED_TERMS
+                    )
                 ):
                     terms.add(t)
         except Exception:
             pass
 
-    # 2) fallback regex extraction to prevent empty-skill false positives
+    # 3) Regex fallback — prevent empty-result edge cases
     if len(terms) < 8:
         regex_terms = re.findall(r"[a-z][a-z0-9+#./-]{2,}", cleaned.lower())
         for t in regex_terms:
@@ -718,26 +818,99 @@ def _extract_ats_terms(text: str) -> set[str]:
                 continue
             terms.add(t)
 
+    # Remove any noise that slipped through
+    terms = {t for t in terms if t not in _NOISE_WORDS}
     return terms
 
 
-def extract_smart_skills(text: str) -> list[str]:
+def extract_smart_skills(text: str, predicted_role: str | None = None) -> list[str]:
     """
-    Uses spaCy POS tagging to extract meaningful noun/proper-noun keywords,
-    filtered against a noise-word blocklist for clean results.
+    AI-driven skill extraction using the trained LinearSVC's TF-IDF feature weights.
+
+    Strategy:
+    1. Transform the CV text through the trained TF-IDF (word) vectorizer.
+    2. Look up the LinearSVC decision weights for the predicted role class.
+    3. For every word present in the CV, rank it by (tfidf_score × model_weight).
+    4. Filter out noise/stop words and return the top-ranked terms as skills.
+
+    Falls back to the vocabulary-based method if the model is not loaded yet.
     """
-    if not _nlp or not text:
+    if not text:
         return []
-    doc = _nlp(text.lower())
-    skills = [
-        token.text.strip()
-        for token in doc
-        if token.pos_ in ("PROPN", "NOUN")
-        and len(token.text) > 2
-        and token.text.lower() not in _NOISE_WORDS
-        and token.is_alpha
-    ]
-    return list(set(skills))
+
+    # ── AI-driven path ────────────────────────────────────────────────────────
+    if model is not None and tfidf_word is not None and encoder is not None:
+        try:
+            cleaned = clean_text(text)
+            # TF-IDF vector for this CV
+            cv_vec = tfidf_word.transform([cleaned])   # shape (1, n_features)
+
+            # Determine which class index to use for weights
+            role_key = (predicted_role or "").upper().replace(" ", "-")
+            classes = list(encoder.classes_)
+            if role_key in classes:
+                cls_idx = classes.index(role_key)
+            else:
+                # Fall back to the class with highest decision score
+                cls_idx = int(model.decision_function(cv_vec)[0].argmax())
+
+            # Feature weights for this class (LinearSVC coef_ shape: n_classes × n_features)
+            weights = model.coef_[cls_idx]            # shape (n_features,)
+
+            # Score = tfidf_value × class_weight  (only for non-zero CV terms)
+            cv_array   = cv_vec.toarray()[0]
+            vocab      = tfidf_word.get_feature_names_out()  # feature name per column
+            scores     = cv_array * weights                   # element-wise
+
+            # Collect (score, term) pairs where CV actually contains the term
+            candidates: list[tuple[float, str]] = []
+            for idx in scores.argsort()[::-1]:
+                if cv_array[idx] == 0:
+                    continue                        # term not in CV
+                term  = vocab[idx]
+                score = float(scores[idx])
+                if score <= 0:
+                    break                          # remaining weights are negative
+                # Filter noise
+                if (
+                    term in _SKILL_TERM_EXCLUDE
+                    or term in _NOISE_WORDS
+                    or len(term) <= 2
+                    or term.isdigit()
+                ):
+                    continue
+                candidates.append((score, term))
+                if len(candidates) == 20:
+                    break
+
+            if candidates:
+                return [term for _, term in candidates[:15]]
+        except Exception:
+            pass   # fall through to vocabulary method on any error
+
+    # ── Fallback: vocabulary-based (used before model loads) ─────────────────
+    matches: list[tuple[int, str]] = []
+    for term in _SKILL_VOCABULARY:
+        pos = _term_match_position(term, text)
+        if pos is not None:
+            matches.append((pos, term))
+
+    matches.sort(key=lambda item: (item[0], -len(item[1])))
+    skills: list[str] = []
+    occupied: list[tuple[int, int]] = []
+    for pos, term in matches:
+        end = pos + len(term)
+        if any(pos >= start and end <= stop for start, stop in occupied):
+            continue
+        if any(term != existing and term in existing for existing in skills):
+            continue
+        if term in _SKILL_TERM_EXCLUDE or term in _NOISE_WORDS:
+            continue
+        skills.append(term)
+        occupied.append((pos, end))
+
+    return skills
+
 
 
 def detect_sub_specialization(role: str, cv_text: str) -> dict:
@@ -865,14 +1038,20 @@ _DEFAULT_JD: dict[str, str] = {
 }
 
 
-def compute_ats_score(cv_text: str, target_jd: str, predicted_role: str = "") -> float:
+def compute_ats_score(
+    cv_text: str,
+    target_jd: str | None = None,
+    predicted_role: str = "",
+    cv_embedding=None,
+    return_breakdown: bool = False
+) -> float | tuple[float, dict]:
     """
     Cosine-similarity ATS score (0-100) via sentence-transformers.
     - If target_jd is provided: compares CV against that JD.
     - If target_jd is empty: falls back to a role-based default JD template.
     - Returns -1.0 only if the model is unavailable.
     """
-    jd = target_jd.strip()
+    jd = (target_jd or "").strip()
     if not jd:
         # Use the default JD for the predicted role, or a generic fallback
         jd = _DEFAULT_JD.get(
@@ -899,10 +1078,14 @@ def compute_ats_score(cv_text: str, target_jd: str, predicted_role: str = "") ->
     # 2. Semantic Score
     semantic_score = 0.0
     if _similarity_model:
-        cv_for_sem = clean_text(cv_text)[:2500]
         jd_for_sem = clean_text(jd)[:2500]
-        if cv_for_sem and jd_for_sem:
-            emb_cv = _similarity_model.encode(cv_for_sem, convert_to_tensor=True)
+        if jd_for_sem:
+            if cv_embedding is not None:
+                emb_cv = cv_embedding
+            else:
+                cv_for_sem = clean_text(cv_text)[:2500]
+                emb_cv = _similarity_model.encode(cv_for_sem, convert_to_tensor=True)
+            
             emb_jd = _similarity_model.encode(jd_for_sem, convert_to_tensor=True)
             sim = st_util.pytorch_cos_sim(emb_cv, emb_jd).item()
             
@@ -921,7 +1104,75 @@ def compute_ats_score(cv_text: str, target_jd: str, predicted_role: str = "") ->
         final_score *= 0.97
 
     final_score = max(0.0, min(100.0, final_score))
-    return round(final_score, 1)
+    final_val = round(final_score, 1)
+
+    if return_breakdown:
+        # Skills match calculation
+        user_skills = extract_smart_skills(cv_text, predicted_role=predicted_role)
+        if target_jd:
+            jd_skills = extract_smart_skills(target_jd)
+            missing_skills = [
+                skill for skill in jd_skills if not _has_skill_term(skill, cv_text)
+            ][:10]
+        else:
+            role_key = predicted_role.upper().replace(" ", "-")
+            role_kws = _ROLE_KEYWORDS.get(role_key, [])
+            missing_skills = [kw for kw in role_kws if not _has_skill_term(kw, cv_text)][:10]
+
+        skills_match_score = len(user_skills) / max(len(user_skills) + len(missing_skills), 1) * 100.0
+
+        # Resume quality score calculation
+        wc = len(cv_text.split())
+        quality_score = 100.0
+        if wc < 150:
+            quality_score -= 20
+        elif wc < 250:
+            quality_score -= 10
+        elif wc > 1000:
+            quality_score -= 10
+        elif wc > 1500:
+            quality_score -= 20
+
+        import re
+        numbers_found = re.findall(
+            r'\d+%|\$[\d,]+|\d+\s*(?:users|clients|projects|employees|years)', cv_text, re.IGNORECASE
+        )
+        if len(numbers_found) == 0:
+            quality_score -= 25
+        elif len(numbers_found) == 1:
+            quality_score -= 15
+        elif len(numbers_found) == 2:
+            quality_score -= 5
+
+        cv_lower = cv_text.lower()
+        if 'education' not in cv_lower:
+            quality_score -= 15
+        if not any(k in cv_lower for k in ['experience', 'work', 'history', 'employment']):
+            quality_score -= 15
+        if 'project' not in cv_lower:
+            quality_score -= 10
+
+        if not re.search(r'[\w\.-]+@[\w\.-]+\.\w+', cv_text):
+            quality_score -= 10
+        if not re.search(r'\+?\d[\d\-\(\)\s]{7,}\d', cv_text):
+            quality_score -= 10
+
+        quality_score = max(0.0, min(100.0, quality_score))
+
+        calc_desc = "ATS Score = (Keyword Match Score * 60%) + (Semantic Similarity Score * 40%)"
+        if len(cv_text.split()) < 80:
+            calc_desc += " (with a 3% penalty for low word count)"
+
+        breakdown = {
+            "keyword_match_score": round(keyword_score, 1),
+            "skills_match_score": round(skills_match_score, 1),
+            "semantic_similarity_score": round(semantic_score, 1),
+            "resume_quality_score": round(quality_score, 1),
+            "calculation_description": calc_desc
+        }
+        return final_val, breakdown
+
+    return final_val
 
 
 # ── Tips generation ────────────────────────────────────────────────────────────
@@ -1037,6 +1288,7 @@ def predict(cv_text: str, target_jd: str = "") -> dict:
         raise ValueError("CV text is empty after cleaning.")
 
     _ensure_classifier_ready()
+    cv_emb_tensor = None
 
     if tfidf_word and tfidf_char:
         # V2 / V3 Path: Build features manually
@@ -1045,7 +1297,11 @@ def predict(cv_text: str, target_jd: str = "") -> dict:
         x_w = tfidf_word.transform([cleaned])
         x_c = tfidf_char.transform([cleaned])
         similarity_model = _ensure_similarity_model()
-        emb = similarity_model.encode([cleaned], normalize_embeddings=True)
+        if similarity_model is not None:
+            cv_emb_tensor = similarity_model.encode(cleaned, convert_to_tensor=True, normalize_embeddings=True)
+            emb = cv_emb_tensor.cpu().numpy().reshape(1, -1)
+        else:
+            emb = np.zeros((1, 384))
         
         if scaler is not None:
             x_e = csr_matrix(scaler.transform(emb))
@@ -1074,8 +1330,8 @@ def predict(cv_text: str, target_jd: str = "") -> dict:
         for i in np.argsort(probas)[::-1]
     }
 
-    # Optional post-processing rules (disabled by default).
-    if os.getenv("APPLY_POSTPROCESS", "0") == "1":
+    # Conservative post-processing rules fix common near-tie misclassifications.
+    if os.getenv("APPLY_POSTPROCESS", "1") != "0":
         try:
             from backend.services.postprocess import adjust_predicted_role
 
@@ -1097,7 +1353,9 @@ def predict(cv_text: str, target_jd: str = "") -> dict:
     career_level = detect_career_level(cv_text)
 
     # ATS score (pass predicted role so default JD fallback is role-aware)
-    ats_score = compute_ats_score(cv_text, target_jd, predicted_role=pred_label)
+    ats_score, ats_breakdown = compute_ats_score(
+        cv_text, target_jd, predicted_role=pred_label, cv_embedding=cv_emb_tensor, return_breakdown=True
+    )
 
     # Related roles in same sector
     related_roles = [
@@ -1107,18 +1365,21 @@ def predict(cv_text: str, target_jd: str = "") -> dict:
     ]
 
     # Skill extraction & gap analysis
-    user_skills       = extract_smart_skills(cv_text)
-    user_skills_lower = {s.lower() for s in user_skills}
+    user_skills       = extract_smart_skills(cv_text, predicted_role=pred_label)
     
     has_target_jd = len(target_jd.split()) >= 20
 
     if target_jd:
-        jd_skills      = set(extract_smart_skills(target_jd))
-        missing_skills = sorted([s for s in jd_skills if s.lower() not in user_skills_lower])[:10]
+        jd_skills = extract_smart_skills(target_jd)
+        missing_skills = [
+            skill
+            for skill in jd_skills
+            if not _has_skill_term(skill, cv_text)
+        ][:10]
     else:
         role_key       = pred_label.upper().replace(" ", "-")
         role_kws       = _ROLE_KEYWORDS.get(role_key, [])
-        missing_skills = [kw for kw in role_kws if kw.lower() not in cv_text.lower()][:10]
+        missing_skills = [kw for kw in role_kws if not _has_skill_term(kw, cv_text)][:10]
         
     # Show a hard mismatch warning only when the JD signal is strong and the gap is severe.
     is_mismatch = bool(
@@ -1137,6 +1398,120 @@ def predict(cv_text: str, target_jd: str = "") -> dict:
         user_skills    = user_skills,
         sub_spec       = sub_spec_result.get("top"),
     )
+
+    # Extract terms for keyword matches and missing terms
+    jd = (target_jd or "").strip()
+    if not jd:
+        jd = _DEFAULT_JD.get(
+            pred_label.upper().replace(" ", "-"),
+            "Professional with relevant skills, experience, and industry knowledge."
+        )
+    cv_terms = _extract_ats_terms(cv_text)
+    jd_terms = _extract_ats_terms(jd)
+    matched_keywords = sorted(list(cv_terms.intersection(jd_terms)))
+    missing_keywords = sorted(list(jd_terms - cv_terms))
+
+    # Strengths and Weaknesses
+    resume_strengths = []
+    resume_weaknesses = []
+
+    # Keyword match check
+    if ats_breakdown["keyword_match_score"] >= 70:
+        resume_strengths.append("Good keyword coverage matching the target role")
+    elif ats_breakdown["keyword_match_score"] < 50:
+        resume_weaknesses.append("Low keyword match (needs more industry-specific terms)")
+
+    # Skills density check
+    if len(user_skills) >= 8:
+        resume_strengths.append("Strong technical/professional skill density")
+    elif len(user_skills) < 4:
+        resume_weaknesses.append("Technical skills section could be expanded with more tools/skills")
+
+    # Education check
+    cv_lower = cv_text.lower()
+    if 'education' in cv_lower or 'academic' in cv_lower:
+        resume_strengths.append("Clear and relevant academic education section")
+    else:
+        resume_weaknesses.append("Missing academic education section")
+
+    # Projects check
+    if 'project' in cv_lower:
+        resume_strengths.append("Project experience details are well documented")
+    else:
+        resume_weaknesses.append("No portfolio projects or personal projects mentioned")
+
+    # Measurable achievements (metrics) check
+    import re
+    numbers_found = re.findall(
+        r'\d+%|\$[\d,]+|\d+\s*(?:users|clients|projects|employees|years)', cv_text, re.IGNORECASE
+    )
+    if len(numbers_found) >= 3:
+        resume_strengths.append("Strong use of quantified achievements and performance metrics")
+    else:
+        resume_weaknesses.append("Lack of quantified achievements (add numbers, percentages, or savings)")
+
+    # Length check
+    wc = len(cv_text.split())
+    if 250 <= wc <= 800:
+        resume_strengths.append("Optimal resume length (highly reader-friendly)")
+    elif wc < 150:
+        resume_weaknesses.append("Resume is too short (lacks detailed experience highlights)")
+    elif wc > 1000:
+        resume_weaknesses.append("Resume is too long (aim for 1 to 2 pages max)")
+
+    # Semantic similarity check
+    if ats_breakdown["semantic_similarity_score"] >= 65:
+        resume_strengths.append("Strong semantic alignment with role expectations")
+    elif ats_breakdown["semantic_similarity_score"] < 45:
+        resume_weaknesses.append("Low semantic similarity to the job description requirements")
+
+    # Portfolio/links check
+    if re.search(r'linkedin\.com|github\.com|portfolio', cv_lower):
+        resume_strengths.append("Includes links to professional networks/portfolio")
+    else:
+        resume_weaknesses.append("Missing links to professional networks (LinkedIn or GitHub portfolio)")
+
+    # Fallbacks
+    if len(resume_strengths) < 2:
+        resume_strengths.extend([
+            "Professional resume layout structure",
+            "Includes essential contact information"
+        ])
+    if len(resume_weaknesses) == 0:
+        resume_weaknesses.extend([
+            "Could be enhanced with certifications related to the target role",
+            "Add a robust professional summary at the top of the resume"
+        ])
+
+    resume_strengths = resume_strengths[:5]
+    resume_weaknesses = resume_weaknesses[:5]
+
+    # Recommendations
+    ats_recommendations = []
+    if missing_keywords:
+        ats_recommendations.append(f"Incorporate missing keywords naturally: {', '.join(missing_keywords[:4])}.")
+    if len(numbers_found) < 2:
+        ats_recommendations.append("Incorporate measurable impact using numbers/percentages (e.g. 'boosted sales by 20%', 'managed a $50k project budget').")
+    if 'project' not in cv_lower:
+        ats_recommendations.append("Add a 'Projects' section highlighting personal or academic work demonstrating hands-on expertise.")
+    if len(user_skills) < 6:
+        ats_recommendations.append("Expand the core skills section to list more relevant technical tools, frameworks, or methodologies.")
+    if not re.search(r'linkedin\.com|github\.com', cv_lower):
+        ats_recommendations.append("Add links to your LinkedIn profile or GitHub/portfolio website to showcase active projects and professional history.")
+    if wc < 150:
+        ats_recommendations.append("Expand on your job roles by adding 3-4 bullet points describing specific achievements and responsibilities for each.")
+    elif wc > 1000:
+        ats_recommendations.append("Trim your resume length. Focus on the last 10 years of experience and prioritize bullet points matching the JD.")
+    ats_recommendations.append(f"Tailor your CV's professional summary and work history bullet points specifically to a {role_display} position.")
+    ats_recommendations = ats_recommendations[:5]
+
+    # Enrich tips dictionary
+    tips["ats_breakdown"] = ats_breakdown
+    tips["matched_keywords"] = matched_keywords
+    tips["missing_keywords"] = missing_keywords
+    tips["ats_recommendations"] = ats_recommendations
+    tips["resume_strengths"] = resume_strengths
+    tips["resume_weaknesses"] = resume_weaknesses
 
     return {
         "predicted_role":    pred_label,

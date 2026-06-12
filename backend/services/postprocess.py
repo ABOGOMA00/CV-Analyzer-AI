@@ -135,6 +135,23 @@ def adjust_predicted_role(
     ):
         return "FINANCE"
 
+    # FINANCE <-> CONSULTANT  (rescue rule for synthetic-trained model)
+    finance_rescue_kw = [
+        r"\bfinancial\b", r"\bbudget\b|\bbudgeting\b", r"\bforecast",
+        r"\baudit\b", r"\baccounting\b", r"\bexcel\b", r"\bfinance\b",
+        r"\bcfa\b", r"\bbloomberg\b", r"\bbalance sheet\b", r"\brevenue\b",
+        r"\bfinancial model", r"\bvariance\b",
+    ]
+    finance_rescue_strong = [
+        r"\bfinancial model", r"\bbudgeting\b", r"\bforecast", r"\baudit\b",
+        r"\bcfa\b", r"\bbloomberg\b", r"\bbalance sheet\b",
+    ]
+    if (
+        predicted_role == "CONSULTANT"
+        and (has_strong(finance_rescue_strong) or hit_count(finance_rescue_kw) >= 4)
+    ):
+        return "FINANCE"
+
     # DIGITAL-MEDIA <-> INFORMATION-TECHNOLOGY
     media_kw = [
         r"\bseo\b", r"\bgoogle ads\b|\bppc\b", r"\bfacebook ads\b|\bmeta ads\b",
@@ -157,6 +174,27 @@ def adjust_predicted_role(
         predicted_role == "DIGITAL-MEDIA"
         and (has_strong(it_strong) or hit_count(it_kw) >= 2)
         and close_enough("INFORMATION-TECHNOLOGY", margin=10.0, min_alt=7.0)
+    ):
+        return "INFORMATION-TECHNOLOGY"
+
+    # Generic non-IT -> INFORMATION-TECHNOLOGY rescue.
+    # The classifier can under-rank IT on short pasted CVs, so use a strict
+    # keyword count instead of relying only on the model score.
+    software_kw = [
+        r"\bsoftware engineer\b|\bsoftware developer\b",
+        r"\bpython\b", r"\bfastapi\b|\bdjango\b|\bflask\b",
+        r"\breact\b|\bangular\b|\bvue\b",
+        r"\bjavascript\b|\btypescript\b",
+        r"\brest\s+apis?\b|\bapi design\b",
+        r"\bpostgresql\b|\bmysql\b|\bmongodb\b|\bsql\b",
+        r"\bdocker\b|\bkubernetes\b",
+        r"\baws\b|\bazure\b|\bgcp\b",
+        r"\bci\s*/?\s*cd\b|\bgithub actions\b",
+    ]
+    if (
+        predicted_role != "INFORMATION-TECHNOLOGY"
+        and hit_count(software_kw) >= 4
+        and score("INFORMATION-TECHNOLOGY") >= 3.0
     ):
         return "INFORMATION-TECHNOLOGY"
 

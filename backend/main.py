@@ -23,15 +23,17 @@ from fastapi.responses import RedirectResponse
 from backend.database import engine  # SessionLocal is not used here; routers use get_db()
 import backend.models as models
 
-# ── Create tables ──────────────────────────────────────────────────────────────
-models.Base.metadata.create_all(bind=engine)
-
-
 # ── Lifespan (startup / shutdown hooks) ───────────────────────────────────────
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Keep startup light so the web UI and health check are available immediately."""
     print("[*] Starting CV Analyzer AI server...")
+    # Create DB tables inside lifespan to avoid blocking import-time execution.
+    try:
+        models.Base.metadata.create_all(bind=engine)
+        print("[+] Database tables initialized successfully")
+    except Exception as e:
+        print(f"[!] Database initialization failed: {e}")
     print("[+] Web app ready. AI models will load on the first analysis request.")
     yield
     print("[*] Shutting down...")
@@ -48,11 +50,14 @@ app = FastAPI(
 # CORS — allow all origins in development.
 # In production, replace "*" with your actual frontend domain.
 ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "*").split(",")
+allow_creds = True
+if "*" in ALLOWED_ORIGINS:
+    allow_creds = False  # Starlette rejects wildcard origins with credentials=True
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
-    allow_credentials=True,
+    allow_credentials=allow_creds,
     allow_methods=["*"],
     allow_headers=["*"],
 )

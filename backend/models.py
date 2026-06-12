@@ -22,7 +22,7 @@ class Analysis(Base):
     __tablename__ = "analyses"
 
     id             = Column(Integer, primary_key=True, index=True)
-    user_id        = Column(Integer, ForeignKey("users.id"), nullable=True)
+    user_id        = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
     cv_filename    = Column(String, nullable=False)
     # cv_text is capped at 5 000 chars to avoid bloating the DB with large CVs.
     # Full text is still available via the original uploaded file.
