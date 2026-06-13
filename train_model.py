@@ -150,18 +150,13 @@ def main() -> int:
     xc_train = tfidf_char.fit_transform(x_train)
     xc_test = tfidf_char.transform(x_test)
 
-    print("[*] Encoding embeddings...")
-    embed = SentenceTransformer(EMBED_MODEL_PATH)
-    e_train = embed.encode(x_train, batch_size=64, show_progress_bar=True, normalize_embeddings=True)
-    e_test = embed.encode(x_test, batch_size=64, show_progress_bar=True, normalize_embeddings=True)
-
-    x_train_feat = hstack([xw_train, xc_train, csr_matrix(e_train)])
-    x_test_feat = hstack([xw_test, xc_test, csr_matrix(e_test)])
+    x_train_feat = hstack([xw_train, xc_train])
+    x_test_feat = hstack([xw_test, xc_test])
     print(f"[+] Feature shapes: train={x_train_feat.shape} test={x_test_feat.shape}")
 
     print("[*] Training LinearSVC...")
     model = LinearSVC(
-        C=5.0,
+        C=0.5,
         class_weight=None,
         random_state=RANDOM_STATE,
         max_iter=25_000,

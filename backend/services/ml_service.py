@@ -1303,12 +1303,7 @@ def predict(cv_text: str, target_jd: str = "") -> dict:
         else:
             emb = np.zeros((1, 384))
         
-        if scaler is not None:
-            x_e = csr_matrix(scaler.transform(emb))
-        else:
-            x_e = csr_matrix(emb)
-            
-        x_combined = hstack([x_w, x_c, x_e])
+        x_combined = hstack([x_w, x_c])
         
         pred_encoded = model.predict(x_combined)[0]
         probas       = _predict_proba_any(model, x_combined)[0]

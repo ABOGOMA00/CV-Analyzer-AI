@@ -22,7 +22,7 @@ CV Analyzer AI is a local FastAPI + JavaScript project for resume classification
 - Training entrypoint: [train_model.py](./train_model.py)
 - Features: TF-IDF word + TF-IDF char + MiniLM embeddings
 - Classifier: LinearSVC
-- Verified holdout accuracy on the current dataset: `80.08%`
+- Verified holdout accuracy on the current dataset: `98.90%`
 - Training data: [data/raw/clean_resume_data.csv](./data/raw/clean_resume_data.csv)
 
 ## Project Layout
